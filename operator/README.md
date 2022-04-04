@@ -227,21 +227,24 @@ $ bin/operator-sdk-1.9.0 olm uninstall
 $ kubectl delete ns bundle-test
 ```
 
-### Launch the Operator with OLM and Index
+### Deploy the operator to an Openshift cluster
 
-Note this assumes OLM is already in place.
+#### Using CI build
+1. Make sure you have an Openshift cluster running and your k8s context points to that cluster
+2. Commit your changes, raise a PR and wait for the successful build (_build-operator_ job)
+4. If the kuttl binary does not yet present (first run), execute `make kuttl` to download it
+5. Run `make deploy-via-olm`. Add `VERSION` argument to deploy a specific version (in case of changes in the local VCS)
 
-So far only tested on an OpenShift cluster.
-
-```bash
-./hack/olm-operator-install.sh index-test $(make --quiet tag)
-
-# undeploy
-
-kubectl delete index-test
-
+### Install StackRox on an Openshift cluster using the operator
+1. As a prerequisite, deploy the operator to an Openshift cluster using the method above
+2. Login to a web console
+3. Go to 'Operators' -> 'Installed Operators'
+4. Follow the provided instructions
+5. Remember to use operator-pull-secret under Advanced Configuration when you deploy Central and SecuredCluster. under Advanced Configuration when you deploy Central and SecuredCluster.
+### Uninstall
 ```
-
+kubectl delete ns stackrox-operator
+```
 ## Extending the StackRox Custom Resource Definitions
 
 Instructions and best practices on how to extend the StackRox CRDs is contained in the separate file
