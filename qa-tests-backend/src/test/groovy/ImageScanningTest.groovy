@@ -51,6 +51,8 @@ class ImageScanningTest extends BaseSpecification {
 
     static final private Integer WAIT_FOR_VIOLATION_TIMEOUT = isRaceBuild() ? 450 : 30
 
+    static final private Integer GET_IMAGE_RETRIES = 45
+
     static final private Map<String, Deployment> DEPLOYMENTS = [
             "quay": new Deployment()
                     .setName("quay-image-scanning-test")
@@ -209,7 +211,7 @@ class ImageScanningTest extends BaseSpecification {
         "validate registry based image metadata"
         def imageDigest
         try {
-            withRetry(30, 2) {
+            withRetry(GET_IMAGE_RETRIES, 2) {
                 imageDigest = ImageService.getImages().find { it.name == deployment.image }
                 assert imageDigest?.id
             }
@@ -719,7 +721,7 @@ class ImageScanningTest extends BaseSpecification {
 
     private static ImageOuterClass.Image expectDigestedImage(String imageName, String source) {
         def imageDigest
-        withRetry(30, 2) {
+        withRetry(GET_IMAGE_RETRIES, 2) {
             imageDigest = ImageService.getImages().find { it.name == imageName }
             assert imageDigest?.id
         }
