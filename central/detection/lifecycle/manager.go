@@ -56,6 +56,9 @@ func newManager(deploytimeDetector deploytime.Detector, runtimeDetector runtime.
 		processFilter:           filter,
 
 		queuedIndicators: make(map[string]*storage.ProcessIndicator),
+		// Todo:  Think about one map with a struct to the timer and indicator id set.
+		deploymentIndicators: make(map[string]*set.StringSet),
+		deploymentTimerMap:   make(map[string]*time.Timer),
 
 		indicatorRateLimiter: rate.NewLimiter(rate.Every(rateLimitDuration), 5),
 		indicatorFlushTicker: time.NewTicker(indicatorFlushTickerDuration),

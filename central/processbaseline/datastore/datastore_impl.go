@@ -57,6 +57,7 @@ func (ds *datastoreImpl) GetProcessBaseline(ctx context.Context, key *storage.Pr
 }
 
 func (ds *datastoreImpl) AddProcessBaseline(ctx context.Context, baseline *storage.ProcessBaseline) (string, error) {
+	log.Infof("SHREWS => AddProcessBaseline %s", baseline.GetKey().DeploymentId)
 	if ok, err := processBaselineSAC.ScopeChecker(ctx, storage.Access_READ_WRITE_ACCESS).ForNamespaceScopedObject(baseline.GetKey()).Allowed(ctx); err != nil {
 		return "", err
 	} else if !ok {
@@ -73,6 +74,7 @@ func (ds *datastoreImpl) AddProcessBaseline(ctx context.Context, baseline *stora
 }
 
 func (ds *datastoreImpl) addProcessBaselineUnlocked(ctx context.Context, id string, baseline *storage.ProcessBaseline) (string, error) {
+	log.Infof("SHREWS => addProcessBaselineUnlocked %s", baseline.GetKey().DeploymentId)
 	baseline.Id = id
 	baseline.Created = types.TimestampNow()
 	baseline.LastUpdate = baseline.GetCreated()
@@ -272,6 +274,7 @@ func (ds *datastoreImpl) UpdateProcessBaselineElements(ctx context.Context, key 
 }
 
 func (ds *datastoreImpl) UpsertProcessBaseline(ctx context.Context, key *storage.ProcessBaselineKey, addElements []*storage.BaselineItem, auto bool) (*storage.ProcessBaseline, error) {
+	log.Infof("SHREWS => UpsertProcessBaseline %s", key.DeploymentId)
 	if ok, err := processBaselineSAC.ScopeChecker(ctx, storage.Access_READ_WRITE_ACCESS).ForNamespaceScopedObject(key).Allowed(ctx); err != nil {
 		return nil, err
 	} else if !ok {
