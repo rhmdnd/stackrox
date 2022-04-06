@@ -57,7 +57,7 @@ class ClusterTestRunner:
     def log_significant_event(self, msg):
         now = datetime.now()
         time = now.strftime("%H:%M:%S")
-        marker = ">*>*"
+        marker = "****"
         print(marker)
         print(f"{marker} {time}: {msg}")
         print(marker)
