@@ -5214,16 +5214,6 @@ workflows:
             - build-stackrox
             - build-rhacs
 
-      - openshift-ci-upgrade-test:
-          context:
-          - quay-rhacs-eng-readonly
-          filters:
-            branches:
-              only: /.*(osci).*/
-          requires:
-            - build-stackrox
-            - build-rhacs
-
       - retrigger-master-workflow:
           context: custom-executor-pull
           filters:
