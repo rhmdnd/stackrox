@@ -45,7 +45,7 @@ fi
 make deps
 
 # there is no build in OSCI yet, so hard code a known good one for migration
-echo "3.69.x-286-g131da9c0f1" > CI_TAG
+echo "3.69.x-310-g23ca4e5107" > CI_TAG
 
 # Handoff to target repo dispatch
 .openshift-ci/dispatch.sh "$*"
