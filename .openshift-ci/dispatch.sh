@@ -5,6 +5,10 @@ source "$ROOT/scripts/ci/lib.sh"
 
 set -euo pipefail
 
+set -x
+git log --oneline | head
+set +x
+
 for cred in /tmp/secret/**/[A-Z]*; do
     export "$(basename "$cred")"="$(cat "$cred")"
 done
