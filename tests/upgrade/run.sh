@@ -75,8 +75,8 @@ preamble() {
         die "Only linux or darwin are supported for this test"
     fi
 
-    info "BASH_ENV: ${BASH_ENV}"
-    info "JAVA_OPTS: ${JAVA_OPTS}"
+    info "BASH_ENV: ${BASH_ENV:-}"
+    info "JAVA_OPTS: ${JAVA_OPTS:-}"
 
     if is_OPENSHIFT_CI; then
         # TODO RS-494 will provide the binaries

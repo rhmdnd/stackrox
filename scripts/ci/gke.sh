@@ -70,8 +70,8 @@ create_cluster() {
 
     ensure_CI
 
-    info "BASH_ENV: ${BASH_ENV}"
-    info "JAVA_OPTS: ${JAVA_OPTS}"
+    info "BASH_ENV: ${BASH_ENV:-}"
+    info "JAVA_OPTS: ${JAVA_OPTS:-}"
 
     require_environment "CLUSTER_NAME"
 
