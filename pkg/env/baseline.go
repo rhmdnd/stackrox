@@ -22,8 +22,7 @@ func init() {
 		_ = os.Setenv("ROX_BASELINE_GENERATION_DURATION", legacyValue)
 	}
 
-	_ = os.Setenv("ROX_BASELINE_GENERATION_DURATION", "5m0s")
 	// Now we can pretend the "new" `ROX_BASELINE_GENERATION_DURATION` env var
 	// is always present.
-	BaselineGenerationDuration = registerDurationSetting("ROX_BASELINE_GENERATION_DURATION", time.Minute)
+	BaselineGenerationDuration = registerDurationSetting("ROX_BASELINE_GENERATION_DURATION", time.Hour)
 }

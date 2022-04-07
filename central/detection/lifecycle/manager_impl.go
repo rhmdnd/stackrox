@@ -48,6 +48,12 @@ type processBaselineKey struct {
 	namespace     string
 }
 
+type deploymentObservation struct {
+	inObservation    bool
+	indicators       *set.StringSet
+	observationTimer *time.Timer
+}
+
 type managerImpl struct {
 	reprocessor        reprocessor.Loop
 	runtimeDetector    runtime.Detector
@@ -60,14 +66,14 @@ type managerImpl struct {
 	deletedDeploymentsCache expiringcache.Cache
 	processFilter           filter.Filter
 
-	queuedIndicators     map[string]*storage.ProcessIndicator
-	deploymentIndicators map[string]*set.StringSet
-	deploymentTimerMap   map[string]*time.Timer
+	queuedIndicators         map[string]*storage.ProcessIndicator
+	deploymentObservationMap map[string]*deploymentObservation
 
-	indicatorQueueLock   sync.Mutex
-	flushProcessingLock  concurrency.TransparentMutex
-	indicatorRateLimiter *rate.Limiter
-	indicatorFlushTicker *time.Ticker
+	indicatorQueueLock           sync.Mutex
+	deploymentIndicatorQueueLock sync.Mutex
+	flushProcessingLock          concurrency.TransparentMutex
+	indicatorRateLimiter         *rate.Limiter
+	indicatorFlushTicker         *time.Ticker
 
 	policyAlertsLock          sync.RWMutex
 	removedOrDisabledPolicies set.StringSet
@@ -83,6 +89,20 @@ func (m *managerImpl) copyAndResetIndicatorQueue() map[string]*storage.ProcessIn
 	}
 	copiedMap := m.queuedIndicators
 	m.queuedIndicators = make(map[string]*storage.ProcessIndicator)
+
+	return copiedMap
+}
+
+func (m *managerImpl) copyAndResetDeploymentIndicatorQueue(deploymentID string) *set.StringSet {
+	m.deploymentIndicatorQueueLock.Lock()
+	defer m.deploymentIndicatorQueueLock.Unlock()
+
+	if _, ok := m.deploymentObservationMap[deploymentID]; !ok {
+		return nil
+	}
+
+	copiedMap := m.deploymentObservationMap[deploymentID].indicators
+	m.deploymentObservationMap[deploymentID].indicators = nil
 
 	return copiedMap
 }
@@ -122,10 +142,8 @@ func (m *managerImpl) buildIndicatorFilter() {
 }
 
 func (m *managerImpl) flushQueuePeriodically() {
-	log.Info("SHREWS -- flushQueuePeriodically")
 	defer m.indicatorFlushTicker.Stop()
 	for range m.indicatorFlushTicker.C {
-		log.Info("SHREWS -- ticker")
 		m.flushIndicatorQueue()
 	}
 }
@@ -140,7 +158,6 @@ func indicatorToBaselineKey(indicator *storage.ProcessIndicator) processBaseline
 }
 
 func (m *managerImpl) flushIndicatorQueue() {
-	log.Info("SHREWS -- flushIndicatorQueue")
 	// This is a potentially long-running operation, and we don't want to have a pile of goroutines queueing up on
 	// this lock.
 	if !m.flushProcessingLock.MaybeLock() {
@@ -150,7 +167,6 @@ func (m *managerImpl) flushIndicatorQueue() {
 
 	copiedQueue := m.copyAndResetIndicatorQueue()
 	if len(copiedQueue) == 0 {
-		log.Info("SHREWS => Queue is empty")
 		return
 	}
 
@@ -160,9 +176,9 @@ func (m *managerImpl) flushIndicatorQueue() {
 	indicatorSlice := make([]*storage.ProcessIndicator, 0, len(copiedQueue))
 	for _, indicator := range copiedQueue {
 		if deleted, _ := m.deletedDeploymentsCache.Get(indicator.GetDeploymentId()).(bool); deleted {
-			log.Infof("SHREWS -- indicator deleted deployment => " + indicator.GetDeploymentId())
 			continue
 		}
+
 		indicatorSlice = append(indicatorSlice, indicator)
 	}
 
@@ -175,20 +191,24 @@ func (m *managerImpl) flushIndicatorQueue() {
 		m.processAggregator.Add(indicatorSlice)
 	}
 
-	if !features.PostgresDatastore.Enabled() {
-		defer centralMetrics.SetFunctionSegmentDuration(time.Now(), "CheckAndUpdateBaseline")
+	defer centralMetrics.SetFunctionSegmentDuration(time.Now(), "CheckAndUpdateBaseline")
 
-		// Group the processes into particular baseline segments
-		baselineMap := make(map[processBaselineKey][]*storage.ProcessIndicator)
-		for _, indicator := range indicatorSlice {
-			key := indicatorToBaselineKey(indicator)
-			baselineMap[key] = append(baselineMap[key], indicator)
+	// Group the processes into particular baseline segments
+	baselineMap := make(map[processBaselineKey][]*storage.ProcessIndicator)
+	for _, indicator := range indicatorSlice {
+		// Do not add it to the baseline map if we are in the observation period for that deployment
+		if features.PostgresDatastore.Enabled() && m.deploymentObservationMap[indicator.GetDeploymentId()].inObservation {
+			continue
 		}
 
-		for key, indicators := range baselineMap {
-			if _, err := m.checkAndUpdateBaseline(key, indicators); err != nil {
-				log.Errorf("error checking and updating baseline for %+v: %v", key, err)
-			}
+		key := indicatorToBaselineKey(indicator)
+		baselineMap[key] = append(baselineMap[key], indicator)
+	}
+
+	for key, indicators := range baselineMap {
+		log.Infof("Calling checkAndUpdateBaseline from the normal flow for indicator %s", key.deploymentID)
+		if _, err := m.checkAndUpdateBaseline(key, indicators); err != nil {
+			log.Errorf("error checking and updating baseline for %+v: %v", key, err)
 		}
 	}
 }
@@ -199,32 +219,38 @@ func (m *managerImpl) addToQueue(indicator *storage.ProcessIndicator) {
 
 	log.Infof("SHREWS => addToQueue => %s", indicator.GetId())
 	log.Infof("SHREWS => addToQueue Deployment => %s", indicator.GetDeploymentId())
-	m.queuedIndicators[indicator.GetId()] = indicator
 
-	if _, ok := m.deploymentIndicators[indicator.GetDeploymentId()]; ok {
-		m.deploymentIndicators[indicator.GetDeploymentId()].Add(indicator.GetId())
-	} else {
-		ind := set.NewStringSet()
-		ind.Add(indicator.GetId())
-		m.deploymentIndicators[indicator.GetDeploymentId()] = &ind
+	if features.PostgresDatastore.Enabled() {
+		m.deploymentIndicatorQueueLock.Lock()
+		defer m.deploymentIndicatorQueueLock.Unlock()
+
+		observationMap := m.deploymentObservationMap[indicator.GetDeploymentId()]
+
+		// In observation, add them to the deployment observation queue.
+		if observationMap.inObservation {
+			if observationMap.indicators != nil {
+				observationMap.indicators.Add(indicator.GetId())
+			} else {
+				ind := set.NewStringSet()
+				ind.Add(indicator.GetId())
+				observationMap.indicators = &ind
+			}
+		}
 	}
 
-	log.Infof("SHREWS testing => %s", m.deploymentIndicators[indicator.GetDeploymentId()])
-
+	m.queuedIndicators[indicator.GetId()] = indicator
 }
 
 func (m *managerImpl) addBaseline(deploymentID string) {
 	log.Infof("SHREWS -- addBaseline --- %s", deploymentID)
 	defer centralMetrics.SetFunctionSegmentDuration(time.Now(), "CheckAndUpdateBaseline")
 
-	// Todo: processesDataStore only has get by ID, PG store has get many.  Clean this up with that.
-	indicatorSlice := make([]*storage.ProcessIndicator, 0, len(*m.deploymentIndicators[deploymentID]))
-	for val := range *m.deploymentIndicators[deploymentID] {
-		indicator, found, err := m.processesDataStore.GetProcessIndicator(lifecycleMgrCtx, val)
-		if indicator != nil && found && err == nil {
-			indicatorSlice = append(indicatorSlice, indicator)
-		}
+	copiedQueue := m.copyAndResetDeploymentIndicatorQueue(deploymentID)
+	if copiedQueue == nil {
+		return
 	}
+
+	indicatorSlice, _, _ := m.processesDataStore.GetProcessIndicators(lifecycleMgrCtx, copiedQueue.AsSlice())
 
 	// Group the processes into particular baseline segments
 	baselineMap := make(map[processBaselineKey][]*storage.ProcessIndicator)
@@ -238,7 +264,6 @@ func (m *managerImpl) addBaseline(deploymentID string) {
 			log.Errorf("error checking and updating baseline for %+v: %v", key, err)
 		}
 	}
-
 }
 
 func (m *managerImpl) checkAndUpdateBaseline(baselineKey processBaselineKey, indicators []*storage.ProcessIndicator) (bool, error) {
@@ -249,8 +274,6 @@ func (m *managerImpl) checkAndUpdateBaseline(baselineKey processBaselineKey, ind
 		ClusterId:     baselineKey.clusterID,
 		Namespace:     baselineKey.namespace,
 	}
-
-	// Todo: we are locking here in PG now, so make sure to set the rox lock timestamp
 
 	// TODO joseph what to do if exclusions ("baseline" in the old non-inclusive language) doesn't exist?  Always create for now?
 	baseline, exists, err := m.baselines.GetProcessBaseline(lifecycleMgrCtx, key)
@@ -280,7 +303,7 @@ func (m *managerImpl) checkAndUpdateBaseline(baselineKey processBaselineKey, ind
 		return false, nil
 	}
 	if !exists {
-		_, err = m.baselines.UpsertProcessBaseline(lifecycleMgrCtx, key, elements, true)
+		_, err = m.baselines.UpsertProcessBaseline(lifecycleMgrCtx, key, elements, true, features.PostgresDatastore.Enabled())
 		return false, err
 	}
 
@@ -291,6 +314,7 @@ func (m *managerImpl) checkAndUpdateBaseline(baselineKey processBaselineKey, ind
 		m.reprocessor.ReprocessRiskForDeployments(baselineKey.deploymentID)
 		return userBaseline, nil
 	}
+	// TODO (ROX-8655):  This may be dead with these changes.
 	_, err = m.baselines.UpdateProcessBaselineElements(lifecycleMgrCtx, key, elements, nil, true)
 	return userBaseline, err
 }
@@ -306,23 +330,25 @@ func (m *managerImpl) IndicatorAdded(indicator *storage.ProcessIndicator) error 
 		return nil
 	}
 	metrics.ProcessFilterCounterInc("Added")
-	m.addToQueue(indicator)
 
-	// Todo: Set the timer for the deployment if one does not already exist
-	_, found := m.deploymentTimerMap[indicator.GetDeploymentId()]
-	if !found {
-		deployTimer := time.NewTimer(env.BaselineGenerationDuration.DurationSetting())
-		m.deploymentTimerMap[indicator.GetDeploymentId()] = deployTimer
+	if features.PostgresDatastore.Enabled() {
+		_, found := m.deploymentObservationMap[indicator.GetDeploymentId()]
+		if !found {
+			deployTimer := time.NewTimer(env.BaselineGenerationDuration.DurationSetting())
+			m.deploymentObservationMap[indicator.GetDeploymentId()] = &deploymentObservation{inObservation: true, observationTimer: deployTimer}
 
-		go func() {
-			<-deployTimer.C
-			log.Infof("===========  Callback func calling ... %s", indicator.GetDeploymentId())
-			m.addBaseline(indicator.GetDeploymentId())
-			log.Infof("===========  Timer completed... %s", indicator.GetDeploymentId())
-			delete(m.deploymentTimerMap, indicator.GetDeploymentId())
-			timeutil.StopTimer(deployTimer)
-		}()
+			go func() {
+				<-deployTimer.C
+				// Remove deployment from observation mode
+				m.deploymentObservationMap[indicator.GetDeploymentId()].inObservation = false
+				m.addBaseline(indicator.GetDeploymentId())
+				timeutil.StopTimer(deployTimer)
+				m.deploymentObservationMap[indicator.GetDeploymentId()].observationTimer = nil
+			}()
+		}
 	}
+
+	m.addToQueue(indicator)
 
 	if m.indicatorRateLimiter.Allow() {
 		go m.flushIndicatorQueue()
@@ -420,19 +446,15 @@ func (m *managerImpl) UpsertPolicy(policy *storage.Policy) error {
 }
 
 func (m *managerImpl) DeploymentRemoved(deploymentID string) error {
-	log.Infof("SHREWS = DeploymentRemoved %s", deploymentID)
 	_, err := m.alertManager.AlertAndNotify(lifecycleMgrCtx, nil, alertmanager.WithDeploymentID(deploymentID, true))
 
-	// Remove the key from the deploymentIndicator map
-	if _, ok := m.deploymentIndicators[deploymentID]; ok {
-		delete(m.deploymentIndicators, deploymentID)
-	}
-
-	// Todo:  Cancel the timer.
-	if timer, ok := m.deploymentTimerMap[deploymentID]; ok {
-		log.Infof("SHREWS = DeploymentRemoved time for %s", deploymentID)
-		timeutil.StopTimer(timer)
-		delete(m.deploymentTimerMap, deploymentID)
+	if features.PostgresDatastore.Enabled() {
+		if deployMap, ok := m.deploymentObservationMap[deploymentID]; ok {
+			if deployMap.observationTimer != nil {
+				timeutil.StopTimer(deployMap.observationTimer)
+			}
+			delete(m.deploymentObservationMap, deploymentID)
+		}
 	}
 
 	return err
