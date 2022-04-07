@@ -88,11 +88,11 @@ spec:
                   resources:
                     default:
                       limits:
+                        cpu: 500m
+                        memory: 1Gi
+                      requests:
                         cpu: 100m
                         memory: 256Mi
-                      requests:
-                        cpu: 50m
-                        memory: 128Mi
                     description: Allows overriding the default resource settings for
                       this component. Please consult the documentation for an overview
                       of default resource requirements and a sizing guide.
@@ -488,11 +488,11 @@ spec:
                       resources:
                         default:
                           limits:
+                            cpu: 500m
+                            memory: 1Gi
+                          requests:
                             cpu: 100m
                             memory: 256Mi
-                          requests:
-                            cpu: 50m
-                            memory: 128Mi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing
@@ -611,11 +611,11 @@ spec:
                       resources:
                         default:
                           limits:
+                            cpu: 500m
+                            memory: 1Gi
+                          requests:
                             cpu: 100m
                             memory: 256Mi
-                          requests:
-                            cpu: 50m
-                            memory: 128Mi
                         description: Allows overriding the default resource settings
                           for this component. Please consult the documentation for
                           an overview of default resource requirements and a sizing
@@ -712,11 +712,11 @@ spec:
                   resources:
                     default:
                       limits:
+                        cpu: 500m
+                        memory: 1Gi
+                      requests:
                         cpu: 100m
                         memory: 256Mi
-                      requests:
-                        cpu: 50m
-                        memory: 128Mi
                     description: Allows overriding the default resource settings for
                       this component. Please consult the documentation for an overview
                       of default resource requirements and a sizing guide.

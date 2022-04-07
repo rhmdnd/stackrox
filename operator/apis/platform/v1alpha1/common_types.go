@@ -34,7 +34,8 @@ type DeploymentSpec struct {
 	// Allows overriding the default resource settings for this component. Please consult the documentation
 	// for an overview of default resource requirements and a sizing guide.
 	//+operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:resourceRequirements"},order=100
-	//+kubebuilder:default={limits: {cpu: "100m", memory: "256Mi"}, requests: {cpu: "50m", memory: "128Mi"}}
+	// +optional
+	// +kubebuilder:default:={requests: {cpu: "100m", memory: "256Mi"}, limits: {cpu: "500m", memory: "1Gi"}}
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// If you want this component to only run on specific nodes, you can configure a node selector here.
