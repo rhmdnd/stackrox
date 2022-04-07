@@ -59,16 +59,6 @@ func Validate(p *storage.Policy, options ...ValidateOption) error {
 		errorList.AddError(validatePolicySection(section, configuration, p.GetEventSource()))
 	}
 
-	// Special case for ImageSignatureVerifiedBy policy for which we don't allow
-	// AND operator due to the UI limitations.
-	for _, ps := range p.PolicySections {
-		for _, pg := range ps.PolicyGroups {
-			if pg.FieldName == fieldnames.ImageSignatureVerifiedBy && pg.BooleanOperator == storage.BooleanOperator_AND {
-				errorList.AddStringf("operator AND is not allowed for field %q", fieldnames.ImageSignatureVerifiedBy)
-			}
-		}
-	}
-
 	return errorList.ToError()
 }
 
@@ -101,6 +91,12 @@ func validatePolicySection(s *storage.PolicySection, configuration *validateConf
 		}
 		if len(g.GetValues()) > 1 && m.operatorsForbidden {
 			errorList.AddStringf("policy criteria %q does not support more than one value %q", g.GetFieldName(), g.GetValues())
+		}
+		if g.BooleanOperator == storage.BooleanOperator_AND && m.operatorAndForbidden {
+			errorList.AddStringf("operator AND forbidden for field %q", g.GetFieldName())
+		}
+		if g.BooleanOperator == storage.BooleanOperator_OR && m.operatorOrForbidden {
+			errorList.AddStringf("operator OR forbidden for field %q", g.GetFieldName())
 		}
 		for idx, v := range g.GetValues() {
 			if !m.valueRegex(configuration).MatchString(v.GetValue()) {

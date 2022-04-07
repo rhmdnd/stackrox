@@ -40,6 +40,8 @@ type option int
 const (
 	negationForbidden option = iota
 	operatorsForbidden
+	operatorAndForbidden
+	operatorOrForbidden
 )
 
 // RuntimeFieldType is the type of a runtime policy criteria field
@@ -57,13 +59,15 @@ const (
 )
 
 type metadataAndQB struct {
-	operatorsForbidden bool
-	negationForbidden  bool
-	qb                 querybuilders.QueryBuilder
-	valueRegex         func(*validateConfiguration) *regexp.Regexp
-	contextFields      violationmessages.ContextQueryFields
-	eventSourceContext []storage.EventSource
-	fieldTypes         []RuntimeFieldType
+	operatorsForbidden   bool
+	operatorAndForbidden bool
+	operatorOrForbidden  bool
+	negationForbidden    bool
+	qb                   querybuilders.QueryBuilder
+	valueRegex           func(*validateConfiguration) *regexp.Regexp
+	contextFields        violationmessages.ContextQueryFields
+	eventSourceContext   []storage.EventSource
+	fieldTypes           []RuntimeFieldType
 }
 
 func (f *FieldMetadata) findField(fieldName string) (*metadataAndQB, error) {
@@ -125,6 +129,10 @@ func newFieldMetadata(qb querybuilders.QueryBuilder, contextFields violationmess
 			m.negationForbidden = true
 		case operatorsForbidden:
 			m.operatorsForbidden = true
+		case operatorAndForbidden:
+			m.operatorAndForbidden = true
+		case operatorOrForbidden:
+			m.operatorOrForbidden = true
 		}
 	}
 
@@ -403,7 +411,7 @@ func initializeFieldMetadata() FieldMetadata {
 				return signatureIntegrationIDValueRegex
 			},
 			[]storage.EventSource{storage.EventSource_NOT_APPLICABLE},
-			[]RuntimeFieldType{}, negationForbidden)
+			[]RuntimeFieldType{}, negationForbidden, operatorAndForbidden)
 	}
 
 	f.registerFieldMetadata(fieldnames.ImageTag,
