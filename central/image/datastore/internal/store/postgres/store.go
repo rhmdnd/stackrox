@@ -420,7 +420,7 @@ func copyFromImageCves(ctx context.Context, tx pgx.Tx, objs ...*storage.CVE) err
 
 		"id",
 
-		"operatingsystem",
+		"cve",
 
 		"cvss",
 
@@ -449,7 +449,7 @@ func copyFromImageCves(ctx context.Context, tx pgx.Tx, objs ...*storage.CVE) err
 
 			obj.GetId(),
 
-			obj.GetOperatingSystem(),
+			obj.GetCve(),
 
 			obj.GetCvss(),
 
@@ -508,7 +508,6 @@ func copyFromImageComponentCVERelations(ctx context.Context, tx pgx.Tx, objs ...
 		"hasfixedby",
 		"imagecomponentid",
 		"cveid",
-		"cveoperatingsystem",
 	}
 
 	for idx, obj := range objs {
@@ -524,7 +523,6 @@ func copyFromImageComponentCVERelations(ctx context.Context, tx pgx.Tx, objs ...
 			obj.GetFixedBy(),
 			obj.GetImageComponentId(),
 			obj.GetCveId(),
-			obj.GetCveOperatingSystem(),
 			serialized,
 		})
 
