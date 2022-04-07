@@ -425,14 +425,10 @@ openshift_ci_mods() {
     BASH_ENV=$(mktemp)
     export BASH_ENV
 
-    # For gradle/java, create a writeable prefs space
+    # For gradle
     info "HOME ${HOME:-}"
     export GRADLE_USER_HOME="${HOME}"
     info "GRADLE_USER_HOME ${GRADLE_USER_HOME:-}"
-    mkdir -p "${HOME}/.java/.systemPrefs"
-    mkdir "${HOME}/.java/.userPrefs"
-    chmod -R 755 "${HOME}/.java"
-    export JAVA_OPTS="\"-Djava.util.prefs.systemRoot=${HOME}/.java\" \"-Djava.util.prefs.userRoot=${HOME}/.java/.userPrefs\""
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
