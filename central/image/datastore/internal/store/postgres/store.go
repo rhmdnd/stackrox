@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/pkg/errors"
 	"github.com/stackrox/rox/central/globaldb"
+	"github.com/stackrox/rox/central/image/datastore/internal/store"
 	"github.com/stackrox/rox/central/image/datastore/internal/store/common"
 	"github.com/stackrox/rox/central/metrics"
 	"github.com/stackrox/rox/generated/storage"
@@ -37,8 +38,6 @@ const (
 
 	deleteManyStmt = "DELETE FROM images WHERE Id = ANY($1::text[])"
 
-	batchAfter = 100
-
 	// using copyFrom, we may not even want to batch.  It would probably be simpler
 	// to deal with failures if we just sent it all.  Something to think about as we
 	// proceed and move into more e2e and larger performance testing
@@ -54,25 +53,8 @@ func init() {
 	globaldb.RegisterTable(schema)
 }
 
-type Store interface {
-	Count(ctx context.Context) (int, error)
-	Exists(ctx context.Context, id string) (bool, error)
-	Get(ctx context.Context, id string) (*storage.Image, bool, error)
-	Upsert(ctx context.Context, obj *storage.Image) error
-	UpsertMany(ctx context.Context, objs []*storage.Image) error
-	Delete(ctx context.Context, id string) error
-	GetIDs(ctx context.Context) ([]string, error)
-	GetMany(ctx context.Context, ids []string) ([]*storage.Image, []int, error)
-	DeleteMany(ctx context.Context, ids []string) error
-
-	AckKeysIndexed(ctx context.Context, keys ...string) error
-	GetKeysToIndex(ctx context.Context) ([]string, error)
-
-	GetImageMetadata(_ context.Context, id string) (*storage.Image, bool, error)
-}
-
 // New returns a new Store instance using the provided sql instance.
-func New(ctx context.Context, db *pgxpool.Pool) Store {
+func New(ctx context.Context, db *pgxpool.Pool) store.Store {
 	createTableImages(ctx, db)
 
 	return &storeImpl{
@@ -249,11 +231,11 @@ func postProcessSplit(parts common.ImageParts) ([]*storage.ImageComponent, []*st
 	return components, vulns, imageComponentRelations, componentCVERelations
 }
 
-func insertIntoImagesLayers(ctx context.Context, tx pgx.Tx, obj *storage.ImageLayer, images_Id string, idx int) error {
+func insertIntoImagesLayers(ctx context.Context, tx pgx.Tx, obj *storage.ImageLayer, imageId string, idx int) error {
 
 	values := []interface{}{
 		// parent primary keys start
-		images_Id,
+		imageId,
 		idx,
 		obj.GetInstruction(),
 		obj.GetValue(),
@@ -694,7 +676,7 @@ func (s *storeImpl) copyFromImages(ctx context.Context, tx pgx.Tx, objs ...*stor
 	return err
 }
 
-func (s *storeImpl) copyFromImagesLayers(ctx context.Context, tx pgx.Tx, images_Id string, objs ...*storage.ImageLayer) error {
+func (s *storeImpl) copyFromImagesLayers(ctx context.Context, tx pgx.Tx, imageId string, objs ...*storage.ImageLayer) error {
 	inputRows := [][]interface{}{}
 
 	var err error
@@ -713,7 +695,7 @@ func (s *storeImpl) copyFromImagesLayers(ctx context.Context, tx pgx.Tx, images_
 	for idx, obj := range objs {
 		inputRows = append(inputRows, []interface{}{
 
-			images_Id,
+			imageId,
 
 			idx,
 
@@ -828,20 +810,11 @@ func (s *storeImpl) upsert(ctx context.Context, objs ...*storage.Image) error {
 	return nil
 }
 
+// Upsert upserts image into the store.
 func (s *storeImpl) Upsert(ctx context.Context, obj *storage.Image) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Upsert, "Image")
 
 	return s.upsert(ctx, obj)
-}
-
-func (s *storeImpl) UpsertMany(ctx context.Context, objs []*storage.Image) error {
-	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.UpdateMany, "Image")
-
-	if len(objs) < batchAfter {
-		return s.upsert(ctx, objs...)
-	} else {
-		return s.copyFrom(ctx, objs...)
-	}
 }
 
 // Count returns the number of objects in the store
@@ -1049,7 +1022,7 @@ func (s *storeImpl) getCVEs(ctx context.Context, conn *pgxpool.Conn, componentID
 	return idToCVEMap, nil
 }
 
-// Delete removes the specified ID from the store
+// Delete removes the specified ID from the store.
 func (s *storeImpl) Delete(ctx context.Context, id string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Remove, "Image")
 
@@ -1158,7 +1131,7 @@ func (s *storeImpl) GetMany(ctx context.Context, ids []string) ([]*storage.Image
 	return elems, missingIndices, nil
 }
 
-// Delete removes the specified IDs from the store
+// DeleteMany removes the specified IDs from the store.
 func (s *storeImpl) DeleteMany(ctx context.Context, ids []string) error {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.RemoveMany, "Image")
 
@@ -1182,6 +1155,7 @@ func dropTableImagesLayers(ctx context.Context, db *pgxpool.Pool) {
 	_, _ = db.Exec(ctx, "DROP TABLE IF EXISTS images_Layers CASCADE")
 }
 
+// Destroy drops image table.
 func Destroy(ctx context.Context, db *pgxpool.Pool) {
 	dropTableImages(ctx, db)
 }
@@ -1198,6 +1172,7 @@ func (s *storeImpl) GetKeysToIndex(ctx context.Context) ([]string, error) {
 	return nil, nil
 }
 
+// GetImageMetadata gets the image without scan/component data.
 func (s *storeImpl) GetImageMetadata(ctx context.Context, id string) (*storage.Image, bool, error) {
 	defer metrics.SetPostgresOperationDurationTime(time.Now(), ops.Get, "ImageMetadata")
 
